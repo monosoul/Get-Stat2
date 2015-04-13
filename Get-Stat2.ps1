@@ -80,29 +80,6 @@ function Get-Stat2 {
   $intervalTab = @{"RT"=$null;"HI1"=0;"HI2"=1;"HI3"=2;"HI4"=3}
   $dsValidIntervals = "HI2","HI3","HI4"
   $intervalIndex = $intervalTab[$Interval]
-  
-  if($EntityType -ne "datastore"){
-    if($Interval -eq "RT"){
-      $numinterval = 20
-    }
-    else{
-      $numinterval = $perfMgr.HistoricalInterval[$intervalIndex].SamplingPeriod
-    }
-  }
-  else{
-    if($dsValidIntervals -contains $Interval){
-      $numinterval = $null
-      if(!$Start){
-        $Start = (Get-Date).AddSeconds($perfMgr.HistoricalInterval[$intervalIndex].SamplingPeriod - $perfMgr.HistoricalInterval[$intervalIndex].Length)
-      }
-      if(!$Finish){
-        $Finish = Get-Date
-      }
-    }
-    else{
-      Throw "-Interval parameter $Interval is invalid for datastore metrics."
-    }
-  }
 
   # Test if start is valid
   if($Start -ne $null -and $Start -ne ""){
@@ -149,8 +126,30 @@ function Get-Stat2 {
           "ResourcePool") -contains $EntityType)) {
       Throw "-Entity parameters should be of type HostSystem, VirtualMachine, ClusterComputeResource, Datastore or ResourcePool"
     }
-    
-  
+
+    if($EntityType -ne "datastore"){
+      if($Interval -eq "RT"){
+        $numinterval = 20
+      }
+      else{
+        $numinterval = $perfMgr.HistoricalInterval[$intervalIndex].SamplingPeriod
+      }
+    }
+    else{
+      if($dsValidIntervals -contains $Interval){
+        $numinterval = $null
+        if(!$Start){
+          $Start = (Get-Date).AddSeconds($perfMgr.HistoricalInterval[$intervalIndex].SamplingPeriod - $perfMgr.HistoricalInterval[$intervalIndex].Length)
+        }
+        if(!$Finish){
+          $Finish = Get-Date
+        }
+      }
+      else{
+        Throw "-Interval parameter $Interval is invalid for datastore metrics."
+      }
+    }
+
     # Test if QueryMetrics is given
     if($QueryMetrics){
       $metrics = $perfMgr.QueryAvailablePerfMetric($item.MoRef,$null,$null,$numinterval)
