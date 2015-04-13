@@ -35,7 +35,8 @@ function Get-Stat2 {
        Modification author:  Andrey Nevedomskiy
 
        Updated 13.04.2015 by Nevedomskiy Andrey (monosoul):
-       Added ability to get metrics for multiple entities at a time and parallel parsing.
+       - Added ability to get metrics for multiple entities at a time.
+       - Added parallel results parsing via runspaces.
     .FUNCTIONALITY
        Retrieve vSphere statistics
    
@@ -241,9 +242,20 @@ function Get-Stat2 {
   # No data available
   if($Stats[0].Value -eq $null) {return $null}
 
-  # Extract data to custom object and return as array
-  $data = @()
-  ForEach ($stats_item in $Stats) {
+  $cpunum = (Get-WmiObject -Class Win32_processor).NumberOfLogicalProcessors
+
+  # parallelizing output parsing
+  $RunspacePool = [RunspaceFactory]::CreateRunspacePool(1, $($cpunum * 2))
+  $RunspacePool.Open()
+
+  $RS_scriptblock = {
+    param(
+      [PSObject]$stats_item,
+      [PSObject]$Stat,
+      [PSObject]$unitarray,
+      [string]$entity_name
+    )
+    $data = @()
     for($i = 0; $i -lt $stats_item.SampleInfo.Count; $i ++ ){
       for($j = 0; $j -lt $Stat.Count; $j ++ ){
         $data += New-Object PSObject -Property @{
@@ -257,12 +269,45 @@ function Get-Stat2 {
             }else{-1}
           }
           Unit = $unitarray[$j]
-          Entity = ($Entity | Where-Object { $_.MoRef -eq $stats_item.Entity }).Name
+          Entity = $entity_name
           EntityId = $stats_item.Entity.ToString()
         }
       }
     }
+    return $data
   }
+
+  $Jobs = @()
+  
+  ForEach ($stats_item in $Stats) {
+    $entity_name = ($Entity | Where-Object { $_.MoRef -eq $stats_item.Entity }).Name
+
+    $Job = [powershell]::Create().AddScript($RS_scriptblock)
+
+    $Job.AddArgument($stats_item) | Out-Null
+    $Job.AddArgument($Stat) | Out-Null
+    $Job.AddArgument($unitarray) | Out-Null
+    $Job.AddArgument($entity_name) | Out-Null
+
+    $Job.RunspacePool = $RunspacePool
+    $Jobs += New-Object PSObject -Property @{
+      Pipe = $Job
+      Result = $Job.BeginInvoke()
+    }
+  }
+
+  #Waiting for all jobs to end
+  Do {
+    Start-Sleep -Seconds 1
+  } While ( $Jobs.Result.IsCompleted -contains $false )
+
+  $data = @()
+
+  ForEach ($Job in $Jobs) {
+    $data += $Job.Pipe.EndInvoke($Job.Result)
+  }
+
+  $RunspacePool.Close()
 
   if($MaxSamples -eq 0){
     $data | Sort-Object -Property Timestamp -Descending
