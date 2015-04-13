@@ -124,7 +124,6 @@ function Get-Stat2 {
   }
 
   # Building unit array
-  Remove-Variable -Name unitarray -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -Confirm:$false
   $unitarray = @()
   foreach($st in $Stat){
     if($pcTable[$st] -eq $null){
@@ -138,7 +137,9 @@ function Get-Stat2 {
   Write-Verbose $item.Name
 
     # Test if entity is valid
-    Remove-Variable -Name EntityType -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -Confirm:$false
+    if ($EntityType) {
+      Remove-Variable -Name EntityType -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -Confirm:$false
+    }
     $EntityType = $item.GetType().Name
   
     if(!(("HostSystem",
@@ -172,9 +173,15 @@ function Get-Stat2 {
     #if passed more than one entities then skip stat check to speed up process
     if (@($Entity).Count -eq 1) {
       # Test if stat is valid
-      Remove-Variable -Name InstancesList -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -Confirm:$false
-      Remove-Variable -Name validInstances -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -Confirm:$false
-      Remove-Variable -Name st -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -Confirm:$false
+      if ($InstancesList) {
+        Remove-Variable -Name InstancesList -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -Confirm:$false
+      }
+      if ($validInstances) {
+        Remove-Variable -Name validInstances -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -Confirm:$false
+      }
+      if ($st) {
+        Remove-Variable -Name st -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -Confirm:$false
+      }
       $InstancesList = @()
   
       foreach($st in $Stat){
