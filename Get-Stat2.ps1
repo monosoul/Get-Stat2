@@ -284,7 +284,7 @@ function Get-Stat2 {
     return $data
   }
 
-  $Jobs = @()
+  $Jobs = New-Object System.Collections.ArrayList
   
   ForEach ($stats_item in $Stats) {
     $entity_name = ($Entity | Where-Object { $_.MoRef -eq $stats_item.Entity }).Name
@@ -297,23 +297,39 @@ function Get-Stat2 {
     $Job.AddArgument($entity_name) | Out-Null
 
     $Job.RunspacePool = $RunspacePool
-    $Jobs += New-Object PSObject -Property @{
+    $Jobs.Add((New-Object PSObject -Property @{
       Pipe = $Job
       Result = $Job.BeginInvoke()
-    }
+    })) | Out-Null
   }
+
+  Remove-Variable -Name Stats -Force -Confirm:$false
 
   #Waiting for all jobs to end
-  Do {
-    Start-Sleep -Seconds 1
-  } While ( $Jobs.Result.IsCompleted -contains $false )
-
+  $counter = 0
+  $jobs_count = @($Jobs).Count
   $data = @()
+  Do {
+    #saving results
+    ForEach ($Job in $Jobs) {
+      if ($Job.Result.IsCompleted) {
+        $data += $Job.Pipe.EndInvoke($Job.Result)
+        $Job.Pipe.dispose()
+        $Job.Result = $null
+        $Job.Pipe = $null
+        $counter++
+      }
+    }
+    #removing unused jobs (runspaces)
+    $temphash = $Jobs.Clone()
+    $temphash | Where-Object { $_.pipe -eq $null } | ForEach {
+      $Jobs.Remove($_) | Out-Null
+    }
+    Remove-Variable -Name temphash -Force -Confirm:$false
+    Start-Sleep -Seconds 1
+  } While ( $counter -lt $jobs_count )
 
-  ForEach ($Job in $Jobs) {
-    $data += $Job.Pipe.EndInvoke($Job.Result)
-  }
-
+  $RunspacePool.dispose()
   $RunspacePool.Close()
 
   if($MaxSamples -eq 0){
