@@ -249,7 +249,10 @@ function Get-Stat2 {
   # No data available
   if($Stats[0].Value -eq $null) {return $null}
 
-  $cpunum = (Get-WmiObject -Class Win32_processor).NumberOfLogicalProcessors
+  [int]$cpunum = 0
+  (Get-WmiObject -Class Win32_processor).NumberOfLogicalProcessors | ForEach-Object {
+    $cpunum += $_
+  }
 
   # parallelizing output parsing
   $RunspacePool = [RunspaceFactory]::CreateRunspacePool(1, $($cpunum * 2))
