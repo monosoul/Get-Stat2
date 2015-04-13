@@ -305,6 +305,8 @@ function Get-Stat2 {
 
   Remove-Variable -Name Stats -Force -Confirm:$false
 
+  [System.GC]::Collect()
+
   #Waiting for all jobs to end
   $counter = 0
   $jobs_count = @($Jobs).Count
@@ -326,11 +328,13 @@ function Get-Stat2 {
       $Jobs.Remove($_) | Out-Null
     }
     Remove-Variable -Name temphash -Force -Confirm:$false
+    [System.GC]::Collect()
     Start-Sleep -Seconds 1
   } While ( $counter -lt $jobs_count )
 
   $RunspacePool.dispose()
   $RunspacePool.Close()
+  [System.GC]::Collect()
 
   if($MaxSamples -eq 0){
     $data | Sort-Object -Property Timestamp -Descending
