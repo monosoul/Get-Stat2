@@ -266,13 +266,14 @@ function Get-Stat2 {
     )
     $data = @()
     for($j = 0; $j -lt $Stat.Count; $j ++ ){
+      $script:valuecounter = 0
       $data += $stats_item.Value[$j].Value | Select `
-        @{N="Value";E={$_}},`
+        @{N="Timestamp";E={$stats_item.SampleInfo[$script:valuecounter].Timestamp}},`
+        @{N="Interval";E={$stats_item.SampleInfo[$script:valuecounter].Interval}},`
+        @{N="Value";E={$_;$script:valuecounter++}},`
         @{N="CounterName";E={$Stat[$j]}},`
         @{N="CounterId";E={$stats_item.Value[$j].Id.CounterId}},`
         @{N="Instance";E={$stats_item.Value[$j].Id.Instance}},`
-        @{N="Timestamp";E={$stats_item.SampleInfo[$stats_item.Value[$j].Value.IndexOf($_)].Timestamp}},`
-        @{N="Interval";E={$stats_item.SampleInfo[$stats_item.Value[$j].Value.IndexOf($_)].Interval}},`
         @{N="Unit";E={$unitarray[$j]}},`
         @{N="Entity";E={$entity_name}},`
         @{N="EntityId";E={$stats_item.Entity.ToString()}}
