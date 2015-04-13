@@ -57,7 +57,84 @@ function Get-Stat2 {
 
   $speclist = @()
 
+  $perfMgr = Get-View (Get-View ServiceInstance).content.perfManager
+
+  # Create performance counter hashtable
+  $pcTable = New-Object Hashtable
+  $keyTable = New-Object Hashtable
+  foreach($pC in $perfMgr.PerfCounter){
+    if($pC.Level -ne 99){
+      if(!$pctable.containskey($pC.GroupInfo.Key + "." + $pC.NameInfo.Key + "." + $pC.RollupType)){
+        $pctable.Add(($pC.GroupInfo.Key + "." + $pC.NameInfo.Key + "." + $pC.RollupType),$pC.Key)
+        $keyTable.Add($pC.Key, $pC)
+      }
+    }
+  }
+
+  # Test for a valid $Interval
+  if($Interval.ToString().Split(" ").count -gt 1){
+    Throw "Only 1 interval allowed."
+  }
+  
+  $intervalTab = @{"RT"=$null;"HI1"=0;"HI2"=1;"HI3"=2;"HI4"=3}
+  $dsValidIntervals = "HI2","HI3","HI4"
+  $intervalIndex = $intervalTab[$Interval]
+  
+  if($EntityType -ne "datastore"){
+    if($Interval -eq "RT"){
+      $numinterval = 20
+    }
+    else{
+      $numinterval = $perfMgr.HistoricalInterval[$intervalIndex].SamplingPeriod
+    }
+  }
+  else{
+    if($dsValidIntervals -contains $Interval){
+      $numinterval = $null
+      if(!$Start){
+        $Start = (Get-Date).AddSeconds($perfMgr.HistoricalInterval[$intervalIndex].SamplingPeriod - $perfMgr.HistoricalInterval[$intervalIndex].Length)
+      }
+      if(!$Finish){
+        $Finish = Get-Date
+      }
+    }
+    else{
+      Throw "-Interval parameter $Interval is invalid for datastore metrics."
+    }
+  }
+
+  # Test if start is valid
+  if($Start -ne $null -and $Start -ne ""){
+    if($Start.gettype().name -ne "DateTime") {
+      Throw "-Start parameter should be a DateTime value"
+    }
+  }
+  
+  # Test if finish is valid
+  if($Finish -ne $null -and $Finish -ne ""){
+    if($Finish.gettype().name -ne "DateTime") {
+      Throw "-Start parameter should be a DateTime value"
+    }
+  }
+  
+  # Test start-finish interval
+  if($Start -ne $null -and $Finish -ne $null -and $Start -ge $Finish){
+    Throw "-Start time should be 'older' than -Finish time."
+  }
+
+  # Building unit array
+  Remove-Variable -Name unitarray -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -Confirm:$false
+  $unitarray = @()
+  foreach($st in $Stat){
+    if($pcTable[$st] -eq $null){
+      Throw "-Stat parameter $st is invalid."
+    }
+    $pcInfo = $perfMgr.QueryPerfCounter($pcTable[$st])
+    $unitarray += $pcInfo[0].UnitInfo.Key
+  }
+
   ForEach ($item in @($Entity)) {
+  Write-Verbose $item.Name
 
     # Test if entity is valid
     Remove-Variable -Name EntityType -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -Confirm:$false
@@ -70,52 +147,7 @@ function Get-Stat2 {
           "ResourcePool") -contains $EntityType)) {
       Throw "-Entity parameters should be of type HostSystem, VirtualMachine, ClusterComputeResource, Datastore or ResourcePool"
     }
-  
-    $perfMgr = Get-View (Get-View ServiceInstance).content.perfManager
-  
-    # Create performance counter hashtable
-    $pcTable = New-Object Hashtable
-    $keyTable = New-Object Hashtable
-    foreach($pC in $perfMgr.PerfCounter){
-      if($pC.Level -ne 99){
-        if(!$pctable.containskey($pC.GroupInfo.Key + "." + $pC.NameInfo.Key + "." + $pC.RollupType)){
-          $pctable.Add(($pC.GroupInfo.Key + "." + $pC.NameInfo.Key + "." + $pC.RollupType),$pC.Key)
-          $keyTable.Add($pC.Key, $pC)
-        }
-      }
-    }
-  
-    # Test for a valid $Interval
-    if($Interval.ToString().Split(" ").count -gt 1){
-      Throw "Only 1 interval allowed."
-    }
-  
-    $intervalTab = @{"RT"=$null;"HI1"=0;"HI2"=1;"HI3"=2;"HI4"=3}
-    $dsValidIntervals = "HI2","HI3","HI4"
-    $intervalIndex = $intervalTab[$Interval]
-  
-    if($EntityType -ne "datastore"){
-      if($Interval -eq "RT"){
-        $numinterval = 20
-      }
-      else{
-        $numinterval = $perfMgr.HistoricalInterval[$intervalIndex].SamplingPeriod
-      }
-    }
-    else{
-      if($dsValidIntervals -contains $Interval){
-        $numinterval = $null
-        if(!$Start){
-          $Start = (Get-Date).AddSeconds($perfMgr.HistoricalInterval[$intervalIndex].SamplingPeriod - $perfMgr.HistoricalInterval[$intervalIndex].Length)
-        }
-        if(!$Finish){
-          $Finish = Get-Date
-        }
-      }
-      else{
-        Throw "-Interval parameter $Interval is invalid for datastore metrics."
-      }
-    }
+    
   
     # Test if QueryMetrics is given
     if($QueryMetrics){
@@ -136,71 +168,48 @@ function Get-Stat2 {
       return ($metricslist | Sort-Object -unique -property Group,Name,Rollup)
     }
   
-    # Test if start is valid
-    if($Start -ne $null -and $Start -ne ""){
-      if($Start.gettype().name -ne "DateTime") {
-        Throw "-Start parameter should be a DateTime value"
-      }
-    }
+    #if passed more than one entities then skip stat check to speed up process
+    if (@($Entity).Count -eq 1) {
+      # Test if stat is valid
+      Remove-Variable -Name InstancesList -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -Confirm:$false
+      Remove-Variable -Name validInstances -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -Confirm:$false
+      Remove-Variable -Name st -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -Confirm:$false
+      $InstancesList = @()
   
-    # Test if finish is valid
-    if($Finish -ne $null -and $Finish -ne ""){
-      if($Finish.gettype().name -ne "DateTime") {
-        Throw "-Start parameter should be a DateTime value"
-      }
-    }
+      foreach($st in $Stat){
+        $metricId = $perfMgr.QueryAvailablePerfMetric($item.MoRef,$null,$null,$numinterval)
   
-    # Test start-finish interval
-    if($Start -ne $null -and $Finish -ne $null -and $Start -ge $Finish){
-      Throw "-Start time should be 'older' than -Finish time."
-    }
-  
-    # Test if stat is valid
-    Remove-Variable -Name unitarray -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -Confirm:$false
-    Remove-Variable -Name InstancesList -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -Confirm:$false
-    Remove-Variable -Name validInstances -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -Confirm:$false
-    Remove-Variable -Name st -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue -Confirm:$false
-    $unitarray = @()
-    $InstancesList = @()
-  
-    foreach($st in $Stat){
-      if($pcTable[$st] -eq $null){
-        Throw "-Stat parameter $st is invalid."
-      }
-      $pcInfo = $perfMgr.QueryPerfCounter($pcTable[$st])
-      $unitarray += $pcInfo[0].UnitInfo.Key
-      $metricId = $perfMgr.QueryAvailablePerfMetric($item.MoRef,$null,$null,$numinterval)
-  
-      # Test if QueryInstances in given
-      if($QueryInstances){
-        $mKey = $pcTable[$st]
-        foreach($metric in $metricId){
-          if($metric.CounterId -eq $mKey){
-            $InstancesList += New-Object PSObject -Property @{
-              Stat = $st
-              Instance = $metric.Instance
+        # Test if QueryInstances in given
+        if($QueryInstances){
+          $mKey = $pcTable[$st]
+          foreach($metric in $metricId){
+            if($metric.CounterId -eq $mKey){
+              $InstancesList += New-Object PSObject -Property @{
+                Stat = $st
+                Instance = $metric.Instance
+              }
             }
           }
         }
-      }
-      else{
-        # Test if instance is valid
-        $found = $false
-        $validInstances = @()
-        foreach($metric in $metricId){
-          if($metric.CounterId -eq $pcTable[$st]){
-            if($metric.Instance -eq "") {$cInstance = '""'} else {$cInstance = $metric.Instance}
-            $validInstances += $cInstance
-            if($Instance -eq $metric.Instance){$found = $true}
+        else{
+          # Test if instance is valid
+          $found = $false
+          $validInstances = @()
+          foreach($metric in $metricId){
+            if($metric.CounterId -eq $pcTable[$st]){
+              if($metric.Instance -eq "") {$cInstance = '""'} else {$cInstance = $metric.Instance}
+              $validInstances += $cInstance
+              if($Instance -eq $metric.Instance){$found = $true}
+            }
+          }
+          if(!$found){
+            Throw "-Instance parameter invalid for requested stat: $st.`nValid values are: $validInstances"
           }
         }
-        if(!$found){
-          Throw "-Instance parameter invalid for requested stat: $st.`nValid values are: $validInstances"
-        }
       }
-    }
-    if($QueryInstances){
-      return $InstancesList
+      if($QueryInstances){
+        return $InstancesList
+      }
     }
   
     $PQSpec = New-Object VMware.Vim.PerfQuerySpec
@@ -226,6 +235,7 @@ function Get-Stat2 {
     }
     $speclist += $PQSpec
   }
+
   $Stats = $perfMgr.QueryPerf($speclist)
 
   # No data available
@@ -233,7 +243,7 @@ function Get-Stat2 {
 
   # Extract data to custom object and return as array
   $data = @()
-  ForEach ($stats_item in $stats) {
+  ForEach ($stats_item in $Stats) {
     for($i = 0; $i -lt $stats_item.SampleInfo.Count; $i ++ ){
       for($j = 0; $j -lt $Stat.Count; $j ++ ){
         $data += New-Object PSObject -Property @{
