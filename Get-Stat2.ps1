@@ -263,23 +263,17 @@ function Get-Stat2 {
       [string]$entity_name
     )
     $data = @()
-    for($i = 0; $i -lt $stats_item.SampleInfo.Count; $i ++ ){
-      for($j = 0; $j -lt $Stat.Count; $j ++ ){
-        $data += New-Object PSObject -Property @{
-          CounterId = $stats_item.Value[$j].Id.CounterId
-          CounterName = $Stat[$j]
-          Instance = $stats_item.Value[$j].Id.Instance
-          Timestamp = $stats_item.SampleInfo[$i].Timestamp
-          Interval = $stats_item.SampleInfo[$i].Interval
-          Value = &{if($stats_item.Value){
-              $stats_item.Value[$j].Value[$i]
-            }else{-1}
-          }
-          Unit = $unitarray[$j]
-          Entity = $entity_name
-          EntityId = $stats_item.Entity.ToString()
-        }
-      }
+    for($j = 0; $j -lt $Stat.Count; $j ++ ){
+      $data += $stats_item.Value[$j].Value | Select `
+        @{N="Value";E={$_}},`
+        @{N="CounterName";E={$Stat[$j]}},`
+        @{N="CounterId";E={$stats_item.Value[$j].Id.CounterId}},`
+        @{N="Instance";E={$stats_item.Value[$j].Id.Instance}},`
+        @{N="Timestamp";E={$stats_item.SampleInfo[$stats_item.Value[$j].Value.IndexOf($_)].Timestamp}},`
+        @{N="Interval";E={$stats_item.SampleInfo[$stats_item.Value[$j].Value.IndexOf($_)].Interval}},`
+        @{N="Unit";E={$unitarray[$j]}},`
+        @{N="Entity";E={$entity_name}},`
+        @{N="EntityId";E={$stats_item.Entity.ToString()}}
     }
     return $data
   }
