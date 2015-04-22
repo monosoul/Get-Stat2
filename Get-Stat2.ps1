@@ -37,6 +37,8 @@ function Get-Stat2 {
        Updated 13.04.2015 by Nevedomskiy Andrey (monosoul):
        - Added ability to get metrics for multiple entities at a time.
        - Added parallel results parsing via runspaces.
+       Updated 22.04.2015 by Nevedomskiy Andrey (monosoul):
+       - Optimized parallel output parsing, now it would be up to 2x faster.
     .FUNCTIONALITY
        Retrieve vSphere statistics
    
@@ -248,47 +250,66 @@ function Get-Stat2 {
   # No data available
   if($Stats[0].Value -eq $null) {return $null}
 
+  # determining amount of logical CPU
   [int]$cpunum = 0
   (Get-WmiObject -Class Win32_processor).NumberOfLogicalProcessors | ForEach-Object {
     $cpunum += $_
   }
+  # setting throttle to amount of logical CPUs * 2
+  $throttle = ($cpunum * 2)
+
+  # getting amount of stats per thread
+  $limit = [math]::Ceiling(($Stats.Count / $throttle))
+
+  # grouping stats by stats per thread
+  $groups = @()
+  [int]$skip = 0
+  1..$throttle | %{
+    $groups += New-Object PSObject -Property @{
+      Name = $_
+      Value = ($Stats | Select -Skip $skip -First $limit)
+    }
+    $skip += $limit
+  }
 
   # parallelizing output parsing
-  $RunspacePool = [RunspaceFactory]::CreateRunspacePool(1, $($cpunum * 2))
+  $RunspacePool = [RunspaceFactory]::CreateRunspacePool(1, $throttle)
   $RunspacePool.Open()
 
   $RS_scriptblock = {
     param(
-      [PSObject]$stats_item,
+      [PSObject]$stats,
       [PSObject]$Stat,
       [PSObject]$unitarray,
       [string]$entity_name
     )
     $data = @()
-    for($j = 0; $j -lt $Stat.Count; $j ++ ){
-      $script:valuecounter = 0
-      $data += $stats_item.Value[$j].Value | Select `
-        @{N="Timestamp";E={$stats_item.SampleInfo[$script:valuecounter].Timestamp}},`
-        @{N="Interval";E={$stats_item.SampleInfo[$script:valuecounter].Interval}},`
-        @{N="Value";E={$_;$script:valuecounter++}},`
-        @{N="CounterName";E={$Stat[$j]}},`
-        @{N="CounterId";E={$stats_item.Value[$j].Id.CounterId}},`
-        @{N="Instance";E={$stats_item.Value[$j].Id.Instance}},`
-        @{N="Unit";E={$unitarray[$j]}},`
-        @{N="Entity";E={$entity_name}},`
-        @{N="EntityId";E={$stats_item.Entity.ToString()}}
+    ForEach ($stats_item in $stats) {
+      for($j = 0; $j -lt $Stat.Count; $j ++ ){
+        $script:valuecounter = 0
+        $data += $stats_item.Value[$j].Value | Select `
+          @{N="Timestamp";E={$stats_item.SampleInfo[$script:valuecounter].Timestamp}},`
+          @{N="Interval";E={$stats_item.SampleInfo[$script:valuecounter].Interval}},`
+          @{N="Value";E={$_;$script:valuecounter++}},`
+          @{N="CounterName";E={$Stat[$j]}},`
+          @{N="CounterId";E={$stats_item.Value[$j].Id.CounterId}},`
+          @{N="Instance";E={$stats_item.Value[$j].Id.Instance}},`
+          @{N="Unit";E={$unitarray[$j]}},`
+          @{N="Entity";E={$entity_name}},`
+          @{N="EntityId";E={$stats_item.Entity.ToString()}}
+      }
     }
     return $data
   }
 
   $Jobs = New-Object System.Collections.ArrayList
   
-  ForEach ($stats_item in $Stats) {
+  ForEach ($group in $groups) {
     $entity_name = ($Entity | Where-Object { $_.MoRef -eq $stats_item.Entity }).Name
 
     $Job = [powershell]::Create().AddScript($RS_scriptblock)
 
-    $Job.AddArgument($stats_item) | Out-Null
+    $Job.AddArgument($group.Value) | Out-Null
     $Job.AddArgument($Stat) | Out-Null
     $Job.AddArgument($unitarray) | Out-Null
     $Job.AddArgument($entity_name) | Out-Null
@@ -301,6 +322,10 @@ function Get-Stat2 {
   }
 
   Remove-Variable -Name Stats -Force -Confirm:$false
+  Remove-Variable -Name group -Force -Confirm:$false
+  Remove-Variable -Name groups -Force -Confirm:$false
+  Remove-Variable -Name limit -Force -Confirm:$false
+  Remove-Variable -Name skip -Force -Confirm:$false
 
   [System.GC]::Collect()
 
