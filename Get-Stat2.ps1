@@ -267,7 +267,7 @@ function Get-Stat2 {
   1..$throttle | %{
     $groups += New-Object PSObject -Property @{
       Name = $_
-      Value = ($Stats | Select -Skip $skip -First $limit)
+      Value = ($Stats | Select *,@{N="EntityName";E={$id = $_.Entity; ($Entity | ?{ $_.MoRef -eq $id }).Name}} -Skip $skip -First $limit)
     }
     $skip += $limit
   }
@@ -280,8 +280,7 @@ function Get-Stat2 {
     param(
       [PSObject]$stats,
       [PSObject]$Stat,
-      [PSObject]$unitarray,
-      [string]$entity_name
+      [PSObject]$unitarray
     )
     $data = @()
     ForEach ($stats_item in $stats) {
@@ -295,7 +294,7 @@ function Get-Stat2 {
           @{N="CounterId";E={$stats_item.Value[$j].Id.CounterId}},`
           @{N="Instance";E={$stats_item.Value[$j].Id.Instance}},`
           @{N="Unit";E={$unitarray[$j]}},`
-          @{N="Entity";E={$entity_name}},`
+          @{N="Entity";E={$stats_item.EntityName}},`
           @{N="EntityId";E={$stats_item.Entity.ToString()}}
       }
     }
@@ -305,14 +304,11 @@ function Get-Stat2 {
   $Jobs = New-Object System.Collections.ArrayList
   
   ForEach ($group in $groups) {
-    $entity_name = ($Entity | Where-Object { $_.MoRef -eq $stats_item.Entity }).Name
-
     $Job = [powershell]::Create().AddScript($RS_scriptblock)
 
     $Job.AddArgument($group.Value) | Out-Null
     $Job.AddArgument($Stat) | Out-Null
     $Job.AddArgument($unitarray) | Out-Null
-    $Job.AddArgument($entity_name) | Out-Null
 
     $Job.RunspacePool = $RunspacePool
     $Jobs.Add((New-Object PSObject -Property @{
